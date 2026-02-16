@@ -1,0 +1,20 @@
+- name: Copy datasets
+  ansible.builtin.copy:
+    src: "/mnt/dbgroup-share/dschmitt/datasets/sets/{{ item }}"
+    dest: "{{ dataset_dir }}/{{ item }}"
+    remote_src: yes
+  loop:
+    - "arxiv-all-modes-labels"
+    - "bms-pos-dedup-raw"
+    - "dblpv14"
+    - "dblp-all-modes-labels-raw"
+    - "github-all-modes-labels"
+    - "kosarak-dedup-raw"
+    - "livejournal-userswithgroups-dedup-raw"
+    - "lnonis1"
+    - "movies-all-modes-labels"
+    - "netflix"
+    - "orkut-userswithgroups-dedup-raw"
+    - "trackers"
+    - "twitter"
+    - "twitter-all-modes-labels"

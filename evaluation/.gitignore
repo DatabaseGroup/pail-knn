@@ -1,0 +1,11 @@
+config.py
+candidates/*
+candidates_relative/*
+histograms/*
+ksimilarity/*
+readsize/*
+runtimes/*
+scalability/*
+scalability_relative/*
+throughput/*
+throughput_relative/*

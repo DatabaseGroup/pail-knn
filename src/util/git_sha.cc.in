@@ -1,0 +1,8 @@
+// this is supposed to be replaced by cmake during configuration
+#include <string>
+#define GIT_SHA1 "@GIT_SHA1@"
+
+namespace util {
+extern const std::string GIT_SHA;
+const std::string GIT_SHA{GIT_SHA1};
+}

@@ -1,0 +1,12 @@
+- name: Install common utilities
+  ansible.builtin.apt:
+    pkg:
+      - tmux
+      - kitty-terminfo
+    state: latest
+
+- name: Create home directory
+  ansible.builtin.file:
+    path: '{{ home_dir }}'
+    state: directory
+    mode: '0755'

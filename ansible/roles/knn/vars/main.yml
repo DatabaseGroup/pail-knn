@@ -1,0 +1,6 @@
+# home_dir is defined in /etc/ansible/hosts for each host
+exp_home: '{{ home_dir }}/knn'
+dataset_dir: '{{ exp_home }}/datasets'
+experiments_dir: '{{ exp_home }}/experiments'
+binaries_dir: '{{ exp_home }}/bin'
+knn_dir: '{{ exp_home }}/knn'

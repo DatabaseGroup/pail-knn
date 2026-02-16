@@ -10,19 +10,17 @@ namespace data {
 
 class SetFileParser {
 public:
-  explicit SetFileParser(std::string inputFile);
+  explicit SetFileParser(const std::string& inputFile);
 
 public:
-  SetData& get_data() {
-    return this->set_data;
-  }
+  SetData& get_data() { return this->set_data; }
   void parse();
+
 private:
   SetData set_data;
-  std::string input_file;
+  const std::string& input_file;
 };
 
-}
+}  // namespace data
 
-
-#endif //KNN_PROJECT_SET_FILE_PARSER_HH
+#endif  // KNN_PROJECT_SET_FILE_PARSER_HH

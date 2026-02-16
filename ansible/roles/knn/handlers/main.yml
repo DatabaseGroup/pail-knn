@@ -1,0 +1,21 @@
+- name: Bootstrap VCPKG
+  listen: bootstrap_vcpkg
+  ansible.builtin.command:
+    chdir: "{{ home_dir }}/.vcpkg"
+    cmd: "./bootstrap-vcpkg.sh -disableMetrics"
+
+- name: Compile knn
+  listen: compile_knn
+  ansible.builtin.command:
+    chdir: '{{ knn_dir }}/build'
+    cmd: '{{ item }}'
+  loop:
+    - "cmake -DCMAKE_TOOLCHAIN_FILE={{ home_dir }}/.vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=release .."
+    - "make -j12"
+
+- name: Copy binaries
+  listen: compile_knn
+  ansible.builtin.copy:
+    src: '{{ knn_dir }}/build/bin/'
+    dest: '{{ binaries_dir }}/'
+    remote_src: yes

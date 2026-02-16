@@ -1,0 +1,30 @@
+{
+  "name" : "knn-project",
+  "version-string" : "1.0.0",
+  "builtin-baseline" : "62efe42f53b1886a20cbeb22ee9a27736d20f149",
+  "dependencies" : [ {
+    "name" : "abseil",
+    "version>=" : "20250127.1"
+  }, {
+    "name" : "vcpkg-cmake-config",
+    "version>=" : "2024-05-23"
+  }, {
+    "name" : "vcpkg-cmake",
+    "version>=" : "2024-04-23"
+  }, {
+    "name" : "tbb",
+    "version>=" : "2022.1.0"
+  }, {
+    "name" : "nlohmann-json",
+    "version>=" : "3.12.0"
+  }, {
+    "name" : "boost-program-options",
+    "version>=" : "1.88.0"
+  }, {
+    "name" : "boost-geometry",
+    "version>=" : "1.88.0"
+  }, {
+    "name" : "boost-align",
+    "version>=" : "1.88.0"
+  } ]
+}

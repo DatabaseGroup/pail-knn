@@ -1,0 +1,10 @@
+- name: Create working directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+  loop:
+    - '{{ exp_home }}'
+    - '{{ dataset_dir }}'
+    - '{{ knn_dir }}'
+    - '{{ experiments_dir }}'
+    - '{{ binaries_dir }}'

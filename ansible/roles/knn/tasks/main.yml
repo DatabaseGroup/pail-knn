@@ -1,0 +1,11 @@
+- include_tasks: common.yml
+
+- name: Datasets
+  include_tasks: datasets.yml
+  tags: datasets
+
+- name: Datasets
+  include_tasks: experiments.yml
+  tags: experiments
+
+- include_tasks: knn.yml
