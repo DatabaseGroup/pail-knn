@@ -5,7 +5,9 @@
 #include <oneapi/tbb/parallel_for.h>
 #include <oneapi/tbb/task_arena.h>
 
+#include "../statistics/index_statistics.hh"
 #include "../statistics/join_statistics.hh"
+#include "../util/set_ops.hh"
 #include "topk_heap.hh"
 
 namespace knn {
@@ -37,6 +39,7 @@ public:
         size_index.emplace_back(current_size, i);
       }
     }
+    index_statistics.set_size_bytes(statistics::vector_allocated_bytes(size_index));
   }
 
   // Single query version (unchanged for compatibility)
@@ -109,11 +112,13 @@ public:
         break;
 
       if (left_ub > right_ub) {
-        int32_t new_left_idx = scan_group_batch<true>(active_queries, query_size, results, verification_count, left_idx);
+        int32_t new_left_idx =
+          scan_group_batch<true>(active_queries, query_size, results, verification_count, left_idx);
         left_idx = new_left_idx;
         left_ub = compute_upper_bound(query_size, left_idx);
       } else {
-        int32_t new_right_idx = scan_group_batch<false>(active_queries, query_size, results, verification_count, right_idx);
+        int32_t new_right_idx =
+          scan_group_batch<false>(active_queries, query_size, results, verification_count, right_idx);
         right_idx = new_right_idx;
         right_ub = compute_upper_bound(query_size, right_idx);
       }
@@ -134,6 +139,7 @@ public:
     nlohmann::json inner = Base::get_join_statistics();
     json["join"] = inner;
 
+    json["index"] = index_statistics.to_json();
     json["timing"] = Base::timing.to_json();
 
     return json;
@@ -150,6 +156,7 @@ public:
     batch_size = std::max(min_batch_size, batch_size);
     batch_size = std::min(max_batch_size, batch_size);
 
+    Base::sample_jemalloc_heap();
     Base::timing.join_time.start();
     arena.execute([&] {
       oneapi::tbb::parallel_for(iter, [&](const tbb::blocked_range<Iterator>& r) {
@@ -159,26 +166,36 @@ public:
         HashTable<int32_t, std::vector<int32_t>> size_groups;
 
         for (auto it = r.begin(); it != r.end(); ++it) {
+          if (!Base::should_start_query()) {
+            break;
+          }
           int32_t record_id = *it;
           auto size = static_cast<int32_t>(Base::records[record_id].tokens.size());
           size_groups[size].push_back(record_id);
         }
 
         std::vector<TopKHeap> results;
+        Base::sample_jemalloc_heap(state.statistics);
 
         // Process each size group
         for (auto& group : size_groups | std::views::values) {
           // Process in batches
           for (int32_t start = 0; start < static_cast<int32_t>(group.size()); start += batch_size) {
+            if (!Base::should_start_query()) {
+              break;
+            }
             const auto end_idx = std::min(start + batch_size, static_cast<int32_t>(group.size()));
             std::vector batch(group.begin() + start, group.begin() + end_idx);
 
             linear_scan_batch(batch, state, results);
+            Base::record_completed_queries(static_cast<int64_t>(batch.size()));
           }
         }
+        Base::sample_jemalloc_heap(state.statistics);
       });
     });
     Base::timing.join_time.stop();
+    Base::sample_jemalloc_heap();
   }
 
 private:
@@ -284,6 +301,7 @@ private:
 
 private:
   std::vector<std::pair<int32_t, int32_t>> size_index;
+  statistics::SizeOnlyIndexStatistics index_statistics;
   const int32_t min_batch_size;
   const int32_t max_batch_size;
 };

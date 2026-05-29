@@ -1,8 +1,17 @@
 - name: Install common utilities
   ansible.builtin.apt:
     pkg:
-      - tmux
+      - curl
+      - fzf
+      - git
       - kitty-terminfo
+      - psmisc
+      - python3-packaging
+      - python3-setuptools
+      - python3-venv
+      - ripgrep
+      - tmux
+      - zsh
     state: latest
 
 - name: Create home directory
@@ -10,3 +19,45 @@
     path: '{{ home_dir }}'
     state: directory
     mode: '0755'
+
+- name: Update shell and home of root
+  ansible.builtin.user:
+    name: root
+    shell: "/usr/bin/zsh"
+
+- name: Install Oh My Zsh
+  ansible.builtin.git:
+    repo: https://github.com/ohmyzsh/ohmyzsh.git
+    dest: ~/.oh-my-zsh
+
+- name: Install chezmoi
+  ansible.builtin.shell:
+    cmd: sh -c "$(curl -fsLS https://get.chezmoi.io)" -- -b /usr/local/bin
+    creates: /usr/local/bin/chezmoi
+
+- name: Install uv
+  ansible.builtin.shell:
+    cmd: sh -c "$(curl -fsLS https://astral.sh/uv/install.sh)" --
+    creates: /usr/local/bin/uv
+  environment:
+    UV_INSTALL_DIR: "/usr/local/bin"
+    UV_NO_MODIFY_PATH: 1
+
+- name: Trust chezmoi Git host key
+  ansible.builtin.known_hosts:
+    name: "[kappa.gsk.moe]:4950"
+    key: "[kappa.gsk.moe]:4950 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINtq7fJA/w2WzP4zCpKlstyUzmV/e0DvqyRiQ30YuR8U"
+    state: present
+
+- name: Apply chezmoi repository
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/chezmoi
+      - init
+      - --apply
+      - '{{ chezmoi_repo }}'
+  args:
+    creates: '{{ home_dir }}/.local/share/chezmoi'
+  environment:
+    HOME: '{{ home_dir }}'
+    GIT_SSH_COMMAND: 'ssh -o UserKnownHostsFile={{ home_dir }}/.ssh/known_hosts'

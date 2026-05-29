@@ -40,10 +40,15 @@ USAGE:
   -k [ --top-k ] arg                    result size
   -a [ --algorithm ] arg (=slim)        One of the following: baseline, 
                                         baselinepp, topkbaseline, slim, full, 
-                                        transformation, partition, palloc
+                                        transformation, partition, palloc, les3,
+                                        puffinn
+  --les3-groups arg                     Path to a precomputed LES3 group file
+  --puffinn-memory-bytes arg            PUFFINN memory budget in bytes
+  --puffinn-recall arg                  PUFFINN recall target
   -c [ --concurrency ] arg (=16)        Level of concurrency/number of threads.
                                         -1 for all cores
   -s [ --sample-size ] arg (=10000)     Sample size for sampled join
+  -t [ --timeout ] arg (=0)             Query timeout in seconds. 0 disables it
   -r [ --seed ] arg (=1111638594)       Seed for prng
   -m [ --mode ] arg (=sample)           Sample or join
   -x [ --suffix ] arg (=0)              suffix depth for filtering
@@ -59,8 +64,11 @@ USAGE:
 ### Description of Arguments
 
 - `-a`: Algorithm to be executed.
-  - `Slim` activates eager horizontal scanning.
-  - `Full` does not use eager horizontal scanning.
+  - `slim` activates eager horizontal scanning.
+  - `full` does not use eager horizontal scanning.
+  - `les3` runs LES3 kNN search using a precomputed group file supplied with `--les3-groups`.
+  - `puffinn` runs approximate Jaccard kNN search using PUFFINN. It requires `--puffinn-memory-bytes`,
+    `--puffinn-recall`, and `-c 1`.
 - `-l`: Length grouping. Only has an effect for `Full` and `Slim`.
     - `identity` disables grouping, one group is created for each size
     - `aio` puts all sets into a single group as in `topkbaseline`

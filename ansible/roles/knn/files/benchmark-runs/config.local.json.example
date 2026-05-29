@@ -1,0 +1,6 @@
+{
+  "connection_string": "<mongodb connection string>",
+  "database": "knn",
+  "collection": "knn",
+  "scheduler_collection": "knn_scheduler"
+}

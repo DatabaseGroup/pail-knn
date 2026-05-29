@@ -3,12 +3,15 @@
     src: "/mnt/dbgroup-share/dschmitt/datasets/sets/{{ item }}"
     dest: "{{ dataset_dir }}/{{ item }}"
     remote_src: yes
+    force: false
   loop:
-    - "arxiv-all-modes-labels"
+    # - "arxiv-all-modes-labels"
     - "bms-pos-dedup-raw"
-    - "dblpv14"
+    # - "dblpv14"
     - "dblp-all-modes-labels-raw"
-    - "github-all-modes-labels"
+    - "friendster"
+    - "pmc-sentences"
+    # - "github-all-modes-labels"
     - "kosarak-dedup-raw"
     - "livejournal-userswithgroups-dedup-raw"
     - "lnonis1"
@@ -17,4 +20,23 @@
     - "orkut-userswithgroups-dedup-raw"
     - "trackers"
     - "twitter"
-    - "twitter-all-modes-labels"
+    # - "twitter-all-modes-labels"
+
+- name: Copy LES3 preprocessed groups
+  ansible.builtin.copy:
+    src: "/mnt/dbgroup-share/dschmitt/les3-preprocessed/{{ item }}.groups"
+    dest: "{{ les3_groups }}/{{ item }}.groups"
+    remote_src: yes
+  loop:
+    - "bms-pos-dedup-raw"
+    - "dblp-all-modes-labels-raw"
+    - "friendster"
+    - "pmc-sentences"
+    - "kosarak-dedup-raw"
+    - "livejournal-userswithgroups-dedup-raw"
+    - "lnonis1"
+    - "movies-all-modes-labels"
+    - "netflix"
+    - "orkut-userswithgroups-dedup-raw"
+    - "trackers"
+    - "twitter"

@@ -1,1 +1,2 @@
-pymongo[srv]
+dnspython>=2.8,<3
+pymongo>=4.15.4,<5

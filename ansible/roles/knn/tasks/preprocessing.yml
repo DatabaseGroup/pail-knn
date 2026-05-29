@@ -1,0 +1,7 @@
+- name: Clone Set preprocessing
+  ansible.builtin.git:
+    accept_newhostkey: true
+    dest: "{{ preprocessing_dir }}/"
+    repo: "git@frosch.cosy.sbg.ac.at:datasets/sets/tools.git"
+    version: master
+  notify: compile_setpreprocessing

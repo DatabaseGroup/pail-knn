@@ -1,100 +1,76 @@
 #ifndef KNN_PROJECT_INV_INDEX_HH
 #define KNN_PROJECT_INV_INDEX_HH
 
+#include <absl/types/span.h>
+
 #include "../data/set_data.hh"
 #include "../statistics/index_statistics.hh"
 #include "../types/types.hh"
-#include "../util/set_ops.hh"
-#include "../util/tab_hash.hh"
 #include "length_group.hh"
 
 namespace indexing {
 
-template <typename K, typename V>
-struct skv_dense {
-public:
-  std::vector<K> keys;
-  std::vector<V> values;
-
-  size_t get_index(const K& key) { return util::binary_search(keys.data(), keys.size(), key); }
-
-  [[nodiscard]] bool empty() const { return keys.empty(); }
-
-  [[nodiscard]] size_t size() const { return values.size(); }
-
-  template <typename... Args>
-  V& emplace_back(const K key, Args&&... args) {
-    keys.push_back(key);
-    values.emplace_back(args...);
-    return values.back();
-  }
+struct posting_segment {
+  TokenPosition position;
+  size_t begin;
 };
 
-template <typename K, typename V>
-struct skv_sparse {
-public:
-  skv_dense<K, size_t> keys;
-  std::vector<V> values;
+struct position_postings {
+  std::vector<posting_segment> segments;
+  RecordIds record_ids;
 
-  [[nodiscard]] bool empty() const { return keys.empty(); }
-
-  [[nodiscard]] size_t size() const { return values.size(); }
-
-  typename std::vector<V>::iterator begin() { return values.begin(); }
-
-  typename std::vector<V>::iterator end() { return values.end(); }
-
-  template <typename... Args>
-  V& emplace_back(const K key, Args&&... args) {
-    keys.emplace_back(key, values.size());
-    values.emplace_back(args...);
-    return values.back();
-  }
-
-  template <typename... Args>
-  V& emplace_sparse_back(Args&&... args) {
-    values.emplace_back(args...);
-    return values.back();
-  }
-
-  template <typename... Args>
-  V& try_emplace(const K key, Args&&... args) {
-    if (keys.empty() || keys.keys.back() != key) {
-      return emplace_back(key, args...);
-    } else {
-      return emplace_sparse_back(args...);
+  void add(const TokenPosition position, const RecordId record_id) {
+    if (segments.empty() || segments.back().position != position) {
+      segments.push_back({position, record_ids.size()});
     }
+
+    record_ids.push_back(record_id);
+  }
+
+  [[nodiscard]] bool empty() const { return record_ids.empty(); }
+
+  [[nodiscard]] size_t size() const { return record_ids.size(); }
+
+  [[nodiscard]] size_t segment_count() const { return segments.size(); }
+
+  [[nodiscard]] TokenPosition segment_position(const size_t i) const { return segments[i].position; }
+
+  [[nodiscard]] absl::Span<const RecordId> segment_records(const size_t i) const {
+    const auto begin = segments[i].begin;
+    const auto end = i + 1 < segments.size() ? segments[i + 1].begin : record_ids.size();
+    return absl::MakeConstSpan(record_ids.data() + begin, end - begin);
   }
 };
 
-struct point_hash {
-  // this is a size_ptr
-  int32_t size = 0;
-  int32_t token = 0;
-  int32_t position = 0;
+using group_index = HashTable<Token, position_postings>;
 
-  bool operator==(const point_hash& rhs) const {
-    return token == rhs.token && size == rhs.size && position == rhs.position;
+struct point_key {
+  lengrp_idx group = 0;
+  Token token = 0;
+  TokenPosition position = 0;
+
+  bool operator==(const point_key& rhs) const {
+    return token == rhs.token && group == rhs.group && position == rhs.position;
   }
-  bool operator!=(const point_hash& rhs) const { return !(rhs == *this); }
+  bool operator!=(const point_key& rhs) const { return !(rhs == *this); }
 
   template <typename H>
-  friend H AbslHashValue(H h, const point_hash& c) {
-    return H::combine(std::move(h), c.size, c.token, c.position);
+  friend H AbslHashValue(H h, const point_key& c) {
+    return H::combine(std::move(h), c.group, c.token, c.position);
   }
 };
 
 template <class LGrouping, bool use_full_pos = false>
 class inv_index {
 public:
-  explicit inv_index(data::SetData& data, LGrouping& lgrouping) {
+  explicit inv_index(data::SetData& data, const LGrouping& lgrouping) {
     auto& records = data.get_records();
 
     lengrp_idx lengrp = 0;
     size_t lengrp_begin_idx = 0;
     size_t lengrp_end_idx;
 
-    point_hash p_hash;
+    point_key p_key;
 
     while (lengrp_begin_idx < records.size()) {
       int32_t current_len_ub = lgrouping.upper_bound(lengrp);
@@ -106,9 +82,9 @@ public:
 
       if constexpr (use_full_pos) {
         // this is a lengrp_idx
-        p_hash.size = index.size();
+        p_key.group = static_cast<lengrp_idx>(index.size());
       }
-      auto& prefix_filter = index.emplace_back(lengrp);
+      auto& prefix_filter = index.emplace_back();
 
       for (int32_t token_pos = 0; token_pos < current_len_ub; ++token_pos) {
         for (auto set_id = static_cast<int32_t>(lengrp_begin_idx); set_id < static_cast<int32_t>(lengrp_end_idx);
@@ -122,8 +98,7 @@ public:
 
           auto token = record.tokens[token_pos];
 
-          auto it = prefix_filter.try_emplace(token).first;
-          it->second.try_emplace(token_pos, set_id);
+          prefix_filter[token].add(token_pos, set_id);
         }
       }
 
@@ -131,20 +106,11 @@ public:
         for (auto& entry : prefix_filter) {
           auto token = entry.first;
           auto& pindex = entry.second;
-          p_hash.token = token;
+          p_key.token = token;
 
-          for (size_t i = 0; i < pindex.keys.size(); ++i) {
-            auto pos = pindex.keys.keys[i];
-            p_hash.position = pos;
-            auto begin = pindex.keys.values[i];
-            size_t end;
-            if (i + 1 < pindex.keys.size()) {
-              end = pindex.keys.values[i + 1];
-            } else {
-              end = pindex.values.size();
-            }
-
-            point_index.try_emplace(p_hash, pindex.values.data() + begin, end - begin);
+          for (size_t i = 0; i < pindex.segment_count(); ++i) {
+            p_key.position = pindex.segment_position(i);
+            point_index.try_emplace(p_key, pindex.segment_records(i));
           }
         }
       }
@@ -154,12 +120,13 @@ public:
     }
 
     statistics::update([&]() {
-      for (auto& slist : index.values) {
+      for (auto& slist : index) {
         for (auto& tlist : slist) {
           statistics.list_size.record(static_cast<int64_t>(tlist.second.size()));
         }
       }
     });
+    statistics.set_size_bytes(calculate_size_bytes());
   }
 
   void read_horizontal_filtered(const int32_t token,
@@ -167,47 +134,30 @@ public:
                                 const int32_t p_r,
                                 const int32_t p_s_ub,
                                 Candidates& candidates,
-                                CandidateOverlaps& overlaps) {
-    auto it = index.values[size_ptr].find(token);
-    statistics.length_accesses.inc();
-    statistics.token_accesses.inc();
+                                CandidateOverlaps& overlaps,
+                                statistics::PrefixStatistics& query_statistics) const {
+    const auto& token_index = index[size_ptr];
+    auto it = token_index.find(token);
+    query_statistics.length_accesses.inc();
+    query_statistics.token_accesses.inc();
 
-    if (it == index.values[size_ptr].end() || it->second.empty()) {
-      statistics.read_size.record(0);
+    if (it == token_index.end() || it->second.empty()) {
+      query_statistics.read_size.record(0);
       return;
     }
-    auto& pindex = it->second;
+    const auto& pindex = it->second;
 
-    int64_t read_size = 0;
-    auto pit = pindex.begin();
-    for (int32_t p_idx = 0; p_idx < static_cast<int32_t>(pindex.keys.size()); ++p_idx) {
-      auto p_s = pindex.keys.keys[p_idx];
-
-      if (p_s > p_s_ub) {
-        break;
+    const auto read_size = scan_segments(pindex, p_s_ub, [&](const RecordId cand_id, const TokenPosition p_s) {
+      auto& entry = overlaps[cand_id];
+      if (entry.overlap == 0) {
+        candidates.push_back(cand_id);
       }
+      ++entry.overlap;
+      entry.p_r = p_r;
+      entry.p_s = p_s;
+    });
 
-      auto end = ((p_idx + 1) < static_cast<int32_t>(pindex.keys.size()))
-                   ? pindex.begin() +
-                       static_cast<std::vector<std::vector<RecordId>>::difference_type>(pindex.keys.values[p_idx + 1])
-                   : pindex.values.end();
-
-      while (pit != end) {
-        auto cand_id = *pit;
-        auto& entry = overlaps[cand_id];
-        if (entry.overlap == 0) {
-          candidates.push_back(cand_id);
-        }
-        ++entry.overlap;
-        entry.p_r = p_r;
-        entry.p_s = p_s;
-        ++pit;
-
-        ++read_size;
-      }
-    }
-
-    statistics.read_size.record(read_size);
+    query_statistics.read_size.record(read_size);
   }
 
   void read_vertical_filtered(const Record& record,
@@ -215,48 +165,32 @@ public:
                               const int32_t first_n_tokens,
                               const int32_t p_ub,
                               Candidates& candidates,
-                              CandidateOverlaps& overlaps) {
-    statistics.length_accesses.inc();
+                              CandidateOverlaps& overlaps,
+                              statistics::PrefixStatistics& query_statistics) const {
+    query_statistics.length_accesses.inc();
+    const auto& token_index = index[size_ptr];
 
     for (int32_t p_r = 0; p_r <= first_n_tokens; ++p_r) {
       auto token = record.tokens[p_r];
-      auto it = index.values[size_ptr].find(token);
-      statistics.token_accesses.inc();
+      auto it = token_index.find(token);
+      query_statistics.token_accesses.inc();
 
-      if (it == index.values[size_ptr].end() || it->second.empty()) {
-        statistics.read_size.record(0);
+      if (it == token_index.end() || it->second.empty()) {
+        query_statistics.read_size.record(0);
         continue;
       }
-      auto& pindex = it->second;
+      const auto& pindex = it->second;
 
-      int64_t read_size = 0;
-      auto pit = pindex.begin();
-      for (int32_t p_idx = 0; p_idx < static_cast<int32_t>(pindex.keys.size()); ++p_idx) {
-        auto p_s = pindex.keys.keys[p_idx];
-
-        if (p_s > p_ub) {
-          break;
+      const auto read_size = scan_segments(pindex, p_ub, [&](const RecordId cand_id, const TokenPosition p_s) {
+        auto& entry = overlaps[cand_id];
+        if (entry.overlap == 0) {
+          candidates.push_back(cand_id);
         }
-        auto end = ((p_idx + 1) < static_cast<int32_t>(pindex.keys.size()))
-                     ? pindex.begin() +
-                         static_cast<std::vector<std::vector<RecordId>>::difference_type>(pindex.keys.values[p_idx + 1])
-                     : pindex.values.end();
-
-        while (pit != end) {
-          auto cand_id = *pit;
-          auto& entry = overlaps[cand_id];
-          if (entry.overlap == 0) {
-            candidates.push_back(cand_id);
-          }
-          ++entry.overlap;
-          entry.p_r = p_r;
-          entry.p_s = p_s;
-          ++pit;
-
-          ++read_size;
-        }
-      }
-      statistics.read_size.record(read_size);
+        ++entry.overlap;
+        entry.p_r = p_r;
+        entry.p_s = p_s;
+      });
+      query_statistics.read_size.record(read_size);
     }
   }
 
@@ -266,21 +200,22 @@ public:
                      const int32_t p_r,
                      const int32_t p_s,
                      Candidates& candidates,
-                     CandidateOverlaps& overlaps) {
-    point_hash p_hash{size_ptr, 0, p_s};
+                     CandidateOverlaps& overlaps,
+                     statistics::PrefixStatistics& query_statistics) const {
+    point_key p_key{size_ptr, 0, p_s};
 
     for (int32_t i = 0; i < p_r; ++i) {
       auto token = record.tokens[i];
-      p_hash.token = token;
+      p_key.token = token;
 
-      auto it = point_index.find(p_hash);
+      auto it = point_index.find(p_key);
 
       if (it == point_index.end()) {
-        statistics.read_size.record(0);
+        query_statistics.read_size.record(0);
         continue;
       }
 
-      auto& list = it->second;
+      const auto& list = it->second;
 
       for (auto cand_id : list) {
         auto& entry = overlaps[cand_id];
@@ -291,7 +226,7 @@ public:
         entry.p_r = i;
         entry.p_s = p_s;
       }
-      statistics.read_size.record(static_cast<int64_t>(list.size()));
+      query_statistics.read_size.record(static_cast<int64_t>(list.size()));
     }
   }
 
@@ -300,22 +235,58 @@ public:
                   const int32_t p_r,
                   const int32_t p_s,
                   Candidates& candidates,
-                  CandidateOverlaps& overlaps) {
+                  CandidateOverlaps& overlaps,
+                  statistics::PrefixStatistics& query_statistics) const {
     auto token = record.tokens[p_r];
-    read_horizontal_filtered(token, size_ptr, p_r, p_s, candidates, overlaps);
-    read_vertical(record, size_ptr, p_r, p_s, candidates, overlaps);
+    read_horizontal_filtered(token, size_ptr, p_r, p_s, candidates, overlaps, query_statistics);
+    read_vertical(record, size_ptr, p_r, p_s, candidates, overlaps, query_statistics);
     if (p_s > 0) {
-      read_vertical(record, size_ptr, p_r, p_s - 1, candidates, overlaps);
+      read_vertical(record, size_ptr, p_r, p_s - 1, candidates, overlaps, query_statistics);
     }
   }
 
-  [[nodiscard]] const std::vector<RecordSize>& get_sorted_sizes() const { return index.keys; }
-
   [[nodiscard]] statistics::PrefixStatistics& get_statistics() { return this->statistics; }
+  [[nodiscard]] const statistics::PrefixStatistics& get_statistics() const { return this->statistics; }
 
 private:
-  skv_dense<RecordSize, HashTable<Token, skv_sparse<TokenPosition, RecordId>>> index;
-  HashTable<point_hash, absl::Span<const int32_t>> point_index;
+  [[nodiscard]] size_t calculate_size_bytes() const {
+    size_t bytes = statistics::vector_allocated_bytes(index);
+
+    for (const auto& group : index) {
+      bytes += statistics::flat_hash_map_payload_bytes(group);
+      for (const auto& entry : group) {
+        const auto& postings = entry.second;
+        bytes += statistics::vector_payload_bytes(postings.segments);
+        bytes += statistics::vector_payload_bytes(postings.record_ids);
+      }
+    }
+
+    bytes += statistics::flat_hash_map_allocated_bytes(point_index);
+
+    return bytes;
+  }
+
+  template <typename Callback>
+  static int64_t scan_segments(const position_postings& pindex, const TokenPosition p_s_ub, Callback&& callback) {
+    int64_t read_size = 0;
+    for (size_t i = 0; i < pindex.segment_count(); ++i) {
+      const auto p_s = pindex.segment_position(i);
+
+      if (p_s > p_s_ub) {
+        break;
+      }
+
+      for (const auto cand_id : pindex.segment_records(i)) {
+        callback(cand_id, p_s);
+        ++read_size;
+      }
+    }
+
+    return read_size;
+  }
+
+  std::vector<group_index> index;
+  HashTable<point_key, absl::Span<const RecordId>> point_index;
   statistics::PrefixStatistics statistics;
 };
 

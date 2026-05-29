@@ -4,6 +4,8 @@
 #include <algorithm>
 
 #include "../../types/types.hh"
+#include "../../util/set_ops.hh"
+#include "../../util/tab_hash.hh"
 #include "../multithreaded_join.hh"
 
 namespace knn::partition {
@@ -36,6 +38,7 @@ struct PartThreadState {
   Candidates candidates;
   std::vector<bool> candidate_bitmap;
   statistics::JoinStatistics statistics;
+  statistics::IndexStatistics index_statistics;
 };
 
 template <class Similarity, bool DELETION = false>
@@ -74,13 +77,15 @@ public:
         index_statistics.list_size.record(static_cast<int64_t>(slist.second.size()));
       }
     });
+    index_statistics.set_size_bytes(calculate_index_size_bytes());
   }
 
   nlohmann::json get_json_statistics() const {
     nlohmann::json result;
 
     result["timing"] = Base::timing.to_json();
-    result["index"] = index_statistics.to_json();
+    auto final_index_statistics = Base::get_index_statistics(index_statistics, &PartThreadState::index_statistics);
+    result["index"] = final_index_statistics.to_json();
     result["join"] = Base::get_join_statistics();
 
     return result;
@@ -88,26 +93,18 @@ public:
 
   template <class Iterator>
   void do_multiple_lookups(Iterator begin, Iterator end, const int32_t concurrency) {
-    oneapi::tbb::task_arena arena(concurrency);
-    oneapi::tbb::blocked_range<Iterator> iter(begin, end);
-
-    Base::timing.join_time.start();
-    arena.execute([&] {
-      oneapi::tbb::parallel_for(iter, [&](const tbb::blocked_range<Iterator>& r) {
-        auto& state = Base::thread_states.local();
-        state.candidate_bitmap.resize(Base::records.size());
-        for (auto it = r.begin(); it != r.end(); ++it) {
-          auto record_id = *it;
-          lookup(record_id, state);
-
-          for (auto& cand_id : state.candidates) {
-            state.candidate_bitmap[cand_id] = false;
-          }
-          state.candidates.clear();
+    Base::run_parallel_lookups(
+      begin,
+      end,
+      concurrency,
+      [&](PartThreadState& state) { state.candidate_bitmap.resize(Base::records.size()); },
+      [&](const int32_t record_id, PartThreadState& state) { lookup(record_id, state); },
+      [&](const int32_t, PartThreadState& state) {
+        for (auto& cand_id : state.candidates) {
+          state.candidate_bitmap[cand_id] = false;
         }
+        state.candidates.clear();
       });
-    });
-    Base::timing.join_time.stop();
   }
 
 private:
@@ -183,7 +180,7 @@ private:
     // std::cerr << "sig_id " << sig_id << " has " << list.size() << " candidates\n";
 
     state.statistics.precandidates.add(static_cast<int64_t>(list.size()));
-    index_statistics.read_size.record(static_cast<int64_t>(list.size()));
+    state.index_statistics.read_size.record(static_cast<int64_t>(list.size()));
 
     for (auto index_id : list) {
       if (!state.candidate_bitmap[index_id]) {
@@ -302,6 +299,21 @@ private:
   }
 
 private:
+  [[nodiscard]] size_t calculate_hash_index_size_bytes(
+    const HashTable<util::TabHash::HashVal, RecordIds>& hash_index) const {
+    size_t bytes = statistics::flat_hash_map_allocated_bytes(hash_index);
+
+    for (const auto& entry : hash_index) {
+      bytes += statistics::vector_payload_bytes(entry.second);
+    }
+
+    return bytes;
+  }
+
+  [[nodiscard]] size_t calculate_index_size_bytes() const {
+    return calculate_hash_index_size_bytes(index) + calculate_hash_index_size_bytes(del_index);
+  }
+
   const int32_t partition_count;
 
   util::TabHash token_hash;

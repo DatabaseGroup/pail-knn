@@ -8,3 +8,4 @@
     - '{{ knn_dir }}'
     - '{{ experiments_dir }}'
     - '{{ binaries_dir }}'
+    - '{{ les3_groups }}'

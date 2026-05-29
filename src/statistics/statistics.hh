@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <ostream>
 #include <sstream>
@@ -159,6 +160,14 @@ struct AvgFloatItem {
 template <class F, class Increaser = RealIncreaser>
 static void update(const F& update_function) {
   Increaser::update(update_function);
+}
+
+template <class Avg>
+void combine_avg_item(Avg& lhs, const Avg& rhs) {
+  lhs.sum += rhs.sum;
+  lhs.count += rhs.count;
+  lhs.min = std::min(lhs.min, rhs.min);
+  lhs.max = std::max(lhs.max, rhs.max);
 }
 
 template <int32_t DIM, typename Increaser = RealIncreaser>

@@ -5,6 +5,11 @@
 
 namespace data {
 
+struct PreprocessOptions {
+  size_t max_dense_entries = 50'000'000;
+  size_t dense_entries_per_token = 4;
+};
+
 class SetData {
 public:
   SetData() : universe_size(0), non_unique_universe(0) {}
@@ -19,8 +24,10 @@ public:
   // Records& get_records() { return records; }
   [[nodiscard]] const Records& get_records() const { return records; }
 
-  [[nodiscard]] std::vector<int32_t> count_frequency() const {
-    std::vector<int32_t> frequencies;
+  void preprocess(const PreprocessOptions& options = {});
+
+  [[nodiscard]] std::vector<int64_t> count_frequency() const {
+    std::vector<int64_t> frequencies;
     frequencies.resize(get_universe_size() + 1);
 
     for (auto& record : records) {
@@ -60,7 +67,7 @@ public:
     return sum;
   }
 
-  double avg_set_size() const {
+  [[nodiscard]] double avg_set_size() const {
     return static_cast<double>(token_count()) / static_cast<double>(records.size());
   }
 

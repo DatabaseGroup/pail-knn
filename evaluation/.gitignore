@@ -2,6 +2,10 @@ config.py
 candidates/*
 candidates_relative/*
 histograms/*
+indexingtime/*
+indexingtime_relative/*
+indexsize/*
+indexsize_relative/*
 ksimilarity/*
 readsize/*
 runtimes/*

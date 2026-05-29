@@ -13,9 +13,39 @@
     - "cmake -DCMAKE_TOOLCHAIN_FILE={{ home_dir }}/.vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=release .."
     - "make -j12"
 
+- name: Create LES3 Preprocessing Directory
+  listen: compile_knn
+  ansible.builtin.file:
+    path: '{{ les3_dir }}'
+    state: directory
+    mode: '0755'
+
+- name: Copy LES3 Preprocessing
+  listen: compile_knn
+  ansible.builtin.copy:
+    src: '{{ knn_dir }}/src/knn/les3/precompute/'
+    dest: '{{ les3_dir }}/'
+    remote_src: yes
+
+- name: Sync LES3 Preprocessing Environment
+  listen: compile_knn
+  ansible.builtin.command:
+    chdir: '{{ les3_dir }}'
+    cmd: '/usr/local/bin/uv sync'
+
 - name: Copy binaries
   listen: compile_knn
   ansible.builtin.copy:
     src: '{{ knn_dir }}/build/bin/'
     dest: '{{ binaries_dir }}/'
     remote_src: yes
+
+- name: Compile Set Preprocessing
+  listen: compile_setpreprocessing
+  ansible.builtin.shell:
+    chdir: "{{ preprocessing_dir }}/preprocessing"
+    cmd: "{{ item }}"
+  loop:
+    - "mkdir -p build"
+    - "cd build && cmake -DCMAKE_BUILD_TYPE=release .. && make -j 4"
+    - "cp build/preprocess {{ binaries_dir }}/"

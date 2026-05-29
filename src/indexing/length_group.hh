@@ -94,7 +94,7 @@ public:
 
   BalancedFunctionalLengthGrouping(const len_hist& len_hist, const std::function<size_t(size_t)>& group_count_fun)
       : LengthGrouping(len_hist) {
-    auto group_count = static_cast<int32_t>(group_count_fun(len_hist.total_weight));
+    const auto group_count = static_cast<int32_t>(group_count_fun(len_hist.total_weight));
 
     auto is_possible = [&](const int64_t max_allowed_sum) -> bool {
       if (group_count == 0)
@@ -103,21 +103,22 @@ public:
       int64_t current_sum = 0;
 
       for (const auto& entry : len_hist.entries) {
-        if (entry.weight > max_allowed_sum)
-          return false;
-
-        if (current_sum + entry.weight <= max_allowed_sum) {
+        if (current_sum == 0) {
           current_sum += entry.weight;
         } else {
-          partitions_needed++;
-          current_sum = entry.weight;
+          if (current_sum + entry.weight <= max_allowed_sum) {
+            current_sum += entry.weight;
+          } else {
+            partitions_needed++;
+            current_sum = entry.weight;
+          }
         }
       }
       return partitions_needed <= group_count;
     };
 
     const auto max_elem_it = std::ranges::max_element(len_hist.entries, {}, &len_hist_entry::weight);
-    int64_t low = max_elem_it->weight;
+    auto low = static_cast<int64_t>(std::sqrt(max_elem_it->weight));
     int64_t high = len_hist.total_weight;
     int64_t optimal_max_sum = high;
 
@@ -136,7 +137,7 @@ public:
       int32_t size_start = len_hist.entries[i].size;
       groups.emplace_back(size_start);
       int64_t group_weight = 0;
-      while (i < len_hist.entries.size() && group_weight + len_hist.entries[i].weight <= optimal_max_sum) {
+      while (i < len_hist.entries.size() && (group_weight == 0 || group_weight + len_hist.entries[i].weight <= optimal_max_sum)) {
         group_weight += len_hist.entries[i].weight;
         ++i;
       }

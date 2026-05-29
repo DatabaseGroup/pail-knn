@@ -5,16 +5,20 @@
 #include <oneapi/tbb/parallel_for.h>
 #include <oneapi/tbb/task_arena.h>
 
+#include <boost/geometry/index/detail/rtree/utilities/statistics.hpp>
 #include <boost/range/irange.hpp>
 
 #include "../../data/set_data.hh"
 #include "../../indexing/tree_point.hh"
+#include "../../statistics/index_statistics.hh"
 #include "../../statistics/transformation_statistics.hh"
 #include "../../timing/join_timing.hh"
 #include "../../types/types.hh"
+#include "../../util/set_ops.hh"
 #include "../multithreaded_join.hh"
 
 namespace bgi = boost::geometry::index;
+namespace bgi_rtree_utilities = boost::geometry::index::detail::rtree::utilities;
 namespace knn::transformation {
 
 class access_transformation {
@@ -77,7 +81,7 @@ void greedy_grouping(build_transformation& t, uint8_t m, OrderedTokens& tokens, 
 inline void dual_greedy_grouping(build_transformation& g,
                                  build_transformation& h,
                                  uint8_t m,
-                                 std::vector<int32_t>& token_frequencies) {
+                                 std::vector<int64_t>& token_frequencies) {
   auto all_ordered_tokens = boost::irange(static_cast<int32_t>(token_frequencies.size()) - 1, 0, -1);
   greedy_grouping(g, m, all_ordered_tokens, token_frequencies);
 
@@ -89,6 +93,7 @@ inline void dual_greedy_grouping(build_transformation& g,
   }
 
   std::vector<group_prio> group_prio;
+  group_prio.reserve(m);
   for (uint8_t i = 0; i < m; ++i) {
     group_prio.emplace_back(i);
   }
@@ -112,7 +117,7 @@ class DualTransformer {
 public:
   static constexpr uint8_t DIMENSIONALITY = 16;  // == 256 / 16
 
-  explicit DualTransformer(std::vector<int32_t>& token_frequencies) {
+  explicit DualTransformer(std::vector<int64_t>& token_frequencies) {
     auto universe_size = token_frequencies.size();
 
     build_transformation b1(DIMENSIONALITY), b2(DIMENSIONALITY);
@@ -164,6 +169,7 @@ public:
     }
 
     tree = RTree(points);
+    index_statistics.set_size_bytes(calculate_index_size_bytes());
   }
 
   nlohmann::json get_json_statistics() const {
@@ -173,7 +179,9 @@ public:
       final_result += s.statistics;
     }
 
+    final_result.queries = this->get_query_statistics();
     result["join"] = final_result.to_json();
+    result["index"] = index_statistics.to_json();
     result["timing"] = timing.to_json();
 
     return result;
@@ -183,17 +191,29 @@ public:
   void do_multiple_lookups(Iterator begin, Iterator end, const int32_t concurrency) {
     oneapi::tbb::task_arena arena(concurrency);
     oneapi::tbb::blocked_range<Iterator> iter(begin, end);
+    const auto sample_heap = [] {
+      auto& join_statistics = TRANSFORMATION_STATISTICS.local().statistics;
+      statistics::record_jemalloc_heap_bytes(join_statistics.heap_peak_bytes);
+    };
 
+    sample_heap();
     timing.join_time.start();
     arena.execute([&] {
       oneapi::tbb::parallel_for(iter, [&](const tbb::blocked_range<Iterator>& r) {
+        sample_heap();
         for (auto it = r.begin(); it != r.end(); ++it) {
+          if (!this->should_start_query()) {
+            break;
+          }
           auto record_id = *it;
           lookup(record_id);
+          this->record_completed_queries();
         }
+        sample_heap();
       });
     });
     timing.join_time.stop();
+    sample_heap();
   }
 
 private:
@@ -242,8 +262,23 @@ private:
   }
 
 private:
+  [[nodiscard]] static size_t rtree_allocated_bytes(const RTree& tree) {
+    const auto [levels, internal_nodes, leaves, values, values_min, values_max] = bgi_rtree_utilities::statistics(tree);
+
+    using TreeView = bgi_rtree_utilities::view<RTree>;
+    using MembersHolder = typename TreeView::members_holder;
+    using Node = typename MembersHolder::node;
+
+    return sizeof(tree) + (internal_nodes + leaves) * sizeof(Node);
+  }
+
+  [[nodiscard]] size_t calculate_index_size_bytes() const {
+    return statistics::vector_allocated_bytes(points) + rtree_allocated_bytes(tree);
+  }
+
   std::vector<indexing::tree_point> points;
   RTree tree;
+  statistics::SizeOnlyIndexStatistics index_statistics;
 };
 
 }  // namespace knn::transformation

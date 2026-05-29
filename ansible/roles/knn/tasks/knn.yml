@@ -1,7 +1,11 @@
 - name: Install build dependencies
   ansible.builtin.apt:
     pkg:
+      - "autoconf"
+      - "automake"
+      - "autoconf-archive"
       - "build-essential"
+      - "libboost-program-options-dev"
       - "cmake"
       - "curl"
       - "git"
@@ -13,6 +17,12 @@
       - "pkg-config"
       - "zip"
     state: latest
+
+- name: Trust Github host key
+  ansible.builtin.known_hosts:
+    name: "github.com"
+    key: "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+    state: present
 
 - name: Clone VCPKG
   ansible.builtin.git:

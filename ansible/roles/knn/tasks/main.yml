@@ -4,7 +4,11 @@
   include_tasks: datasets.yml
   tags: datasets
 
-- name: Datasets
+- name: Preprocessing
+  include_tasks: preprocessing.yml
+  tags: datasets
+
+- name: Experiments
   include_tasks: experiments.yml
   tags: experiments
 

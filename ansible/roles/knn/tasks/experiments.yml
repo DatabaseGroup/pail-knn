@@ -1,10 +1,9 @@
-- name: Setup virtualenv for wrapper
-  ansible.builtin.pip:
-    name: pymongo
-    virtualenv: "{{ experiments_dir }}/venv"
-    virtualenv_command: "python3 -m venv"
-
 - name: Copy benchmark scripts
   ansible.builtin.copy:
     src: 'benchmark-runs/'
     dest: '{{ experiments_dir }}'
+
+- name: Sync benchmark Python environment
+  ansible.builtin.command:
+    chdir: '{{ experiments_dir }}'
+    cmd: 'uv sync'
